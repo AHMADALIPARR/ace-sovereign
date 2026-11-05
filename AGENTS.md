@@ -1,0 +1,15 @@
+# AGENTS.md — law of this repository
+
+1. **Verify before commit.** `bash test/run-tests.sh` must pass 18/18.
+   A change that weakens a gate to make a test pass is a regression,
+   not a fix.
+2. **No credentials in the tree.** Not in code, not in config, not in
+   tests. The ngrok authtoken lives only in the gateway host's
+   environment. Sandbox state lives outside this repository (SBX_HOME).
+3. **The boundary is the product.** The harness never executes; the
+   sandbox never decides; the gateway is the only public edge. Changes
+   that blur a layer need the blueprint updated in the same commit.
+4. **Claims match execution.** STATUS.md separates verified facts from
+   staged work. Do not promote a staged item without running it.
+5. **License.** The sovereign license in LICENSE governs this layer.
+   Check it before any push.

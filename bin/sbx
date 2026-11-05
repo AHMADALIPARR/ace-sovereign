@@ -1,0 +1,221 @@
+#!/usr/bin/env bash
+# sbx — sandbox lifecycle for the sovereign Agent Compute Engine.
+#
+# A sandbox is a copy-on-write workspace: immutable lower layers (a base
+# tree, plus frozen snapshot layers) under a writable upper, joined by an
+# overlay mount. The lifecycle verbs are base, create, exec, snapshot,
+# fork, rollback, destroy, list, status. Every verb appends a hash-chained
+# entry to the ledger. Dispatched commands run with a scrubbed environment:
+# the allowlist is PATH and LANG, plus SBX_BOX. Nothing else crosses.
+set -euo pipefail
+
+SBX_HOME="${SBX_HOME:-$HOME/.ace-sovereign}"
+BASES="$SBX_HOME/bases"
+BOXES="$SBX_HOME/boxes"
+LEDGER="$SBX_HOME/ledger.log"
+ZERO=0000000000000000000000000000000000000000000000000000000000000000
+
+mkdir -p "$BASES" "$BOXES"
+touch "$LEDGER"
+
+die() { echo "sbx: $*" >&2; exit 1; }
+
+now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+ledger() { # event details
+    local event="$1" details="$2" prev payload hash
+    prev=$(tail -n 1 "$LEDGER" 2>/dev/null | awk '{print $1}')
+    [ -n "$prev" ] || prev="$ZERO"
+    payload="$(now)|$event|$details"
+    hash=$(printf '%s|%s' "$prev" "$payload" | sha256sum | awk '{print $1}')
+    echo "$hash $payload" >> "$LEDGER"
+}
+
+credential_scan() { # dir — refuse credential-shaped files in a base tree
+    local dir="$1" hits
+    hits=$(find "$dir" \( -name '.env' -o -name '.env.*' -o -iname '*token*' \
+        -o -iname '*secret*' -o -iname '*credential*' -o -name '*.pem' \
+        -o -name '*.key' -o -name 'id_rsa' -o -name 'id_ed25519' \
+        -o -name 'id_ecdsa' -o -name 'id_dsa' -o -name '.netrc' \
+        -o -name '.aws' -o -name '.gnupg' \) -print 2>/dev/null | head -20)
+    if [ -n "$hits" ]; then
+        echo "sbx: credential-shaped files refused in base tree:" >&2
+        echo "$hits" >&2
+        return 1
+    fi
+}
+
+boxdir() { echo "$BOXES/$1"; }
+
+meta_get() { # box key
+    grep -E "^$2=" "$(boxdir "$1")/meta" | head -1 | cut -d= -f2-
+}
+
+is_mounted() { mountpoint -q "$(boxdir "$1")/merged"; }
+
+do_mount() { # box
+    local b="$1" dir lowers
+    dir=$(boxdir "$b")
+    lowers=$(meta_get "$b" lowers)
+    is_mounted "$b" && umount "$dir/merged"
+    if ! mount -t overlay overlay \
+        -o "lowerdir=$lowers,upperdir=$dir/upper,workdir=$dir/work" \
+        "$dir/merged"; then
+        echo "sbx: overlay mount failed under $SBX_HOME." >&2
+        echo "sbx: some filesystems refuse overlay uppers (this VM's btrfs does);" >&2
+        echo "sbx: point SBX_HOME at a tmpfs (e.g. SBX_HOME=/tmp/ace-sovereign)." >&2
+        return 1
+    fi
+}
+
+do_umount() { # box
+    local b="$1"
+    is_mounted "$b" && umount "$(boxdir "$b")/merged" || true
+}
+
+write_meta() { # box base lowers parent
+    local dir; dir=$(boxdir "$1")
+    cat > "$dir/meta" <<EOF
+name=$1
+base=$2
+lowers=$3
+parent=$4
+created=$(now)
+EOF
+}
+
+cmd_base_create() { # name srcdir
+    local name="$1" src="$2" dest="$BASES/$1"
+    [ -d "$src" ] || die "no such directory: $src"
+    [ -e "$dest" ] && die "base exists: $name"
+    credential_scan "$src" || die "base refused: $name"
+    mkdir -p "$dest"
+    cp -a --no-preserve=ownership "$src/." "$dest/"
+    ledger base-create "base=$name"
+    echo "base created: $name"
+}
+
+cmd_create() { # name --base base
+    local name="$1"; shift
+    local base=""
+    while [ $# -gt 0 ]; do
+        case "$1" in --base) base="$2"; shift 2;; *) die "unknown arg: $1";; esac
+    done
+    [ -n "$base" ] || die "usage: sbx create NAME --base BASE"
+    [ -d "$BASES/$base" ] || die "no such base: $base"
+    local dir; dir=$(boxdir "$name")
+    [ -e "$dir" ] && die "sandbox exists: $name"
+    mkdir -p "$dir/upper" "$dir/work" "$dir/merged" "$dir/snapshots"
+    write_meta "$name" "$base" "$BASES/$base" "-"
+    do_mount "$name"
+    ledger create "box=$name base=$base"
+    echo "sandbox created: $name (base $base)"
+}
+
+cmd_exec() { # name -- cmd...
+    local name="$1"; shift
+    [ "$1" = "--" ] && shift
+    local dir; dir=$(boxdir "$name")
+    [ -d "$dir" ] || die "no such sandbox: $name"
+    is_mounted "$name" || do_mount "$name"
+    ledger exec "box=$name argv=$*"
+    ( cd "$dir/merged" && env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+        LANG=C.UTF-8 SBX_BOX="$name" "$@" )
+}
+
+capture_snapshot() { # box snap — writes layers meta, echoes snapshot dir
+    local b="$1" snap="$2" dir sdir
+    dir=$(boxdir "$b"); sdir="$dir/snapshots/$snap"
+    [ -e "$sdir" ] && die "snapshot exists: $b/$snap"
+    mkdir -p "$sdir"
+    do_umount "$b"
+    cp -a --no-preserve=ownership "$dir/upper" "$sdir/upper"
+    meta_get "$b" lowers > "$sdir/lowers"
+    meta_get "$b" base > "$sdir/base"
+    do_mount "$b"
+    echo "$sdir"
+}
+
+cmd_snapshot() { # box snap
+    local b="$1" snap="$2"
+    [ -d "$(boxdir "$b")" ] || die "no such sandbox: $b"
+    capture_snapshot "$b" "$snap" > /dev/null
+    ledger snapshot "box=$b snap=$snap"
+    echo "snapshot: $b/$snap"
+}
+
+cmd_fork() { # src dst
+    local src="$1" dst="$2" sdir lowers dir
+    [ -d "$(boxdir "$src")" ] || die "no such sandbox: $src"
+    [ -e "$(boxdir "$dst")" ] && die "sandbox exists: $dst"
+    sdir=$(capture_snapshot "$src" "fork-into-$dst")
+    lowers="$(cat "$sdir/lowers")"
+    dir=$(boxdir "$dst")
+    mkdir -p "$dir/upper" "$dir/work" "$dir/merged" "$dir/snapshots"
+    write_meta "$dst" "$(cat "$sdir/base")" "$sdir/upper:$lowers" "$src"
+    do_mount "$dst"
+    ledger fork "src=$src dst=$dst"
+    echo "forked: $src -> $dst"
+}
+
+cmd_rollback() { # box snap
+    local b="$1" snap="$2" dir sdir
+    dir=$(boxdir "$b"); sdir="$dir/snapshots/$snap"
+    [ -d "$sdir" ] || die "no such snapshot: $b/$snap"
+    do_umount "$b"
+    rm -rf "$dir/upper"
+    cp -a --no-preserve=ownership "$sdir/upper" "$dir/upper"
+    write_meta "$b" "$(cat "$sdir/base")" "$(cat "$sdir/lowers")" "$(meta_get "$b" parent)"
+    do_mount "$b"
+    ledger rollback "box=$b snap=$snap"
+    echo "rolled back: $b -> $snap"
+}
+
+cmd_destroy() { # box
+    local b="$1" dir; dir=$(boxdir "$b")
+    [ -d "$dir" ] || die "no such sandbox: $b"
+    do_umount "$b"
+    rm -rf "$dir"
+    ledger destroy "box=$b"
+    echo "destroyed: $b"
+}
+
+cmd_list() {
+    echo "bases:"
+    for d in "$BASES"/*/; do [ -d "$d" ] && echo "  $(basename "$d")"; done
+    echo "sandboxes:"
+    for d in "$BOXES"/*/; do
+        [ -d "$d" ] || continue
+        local b; b=$(basename "$d")
+        local m="unmounted"; is_mounted "$b" && m="mounted"
+        echo "  $b (base $(meta_get "$b" base), parent $(meta_get "$b" parent), $m)"
+    done
+}
+
+cmd_status() { # box
+    local b="$1" dir; dir=$(boxdir "$b")
+    [ -d "$dir" ] || die "no such sandbox: $b"
+    cat "$dir/meta"
+    echo "mounted: $(is_mounted "$b" && echo yes || echo no)"
+    echo "upper bytes: $(du -sb "$dir/upper" | awk '{print $1}')"
+    echo "snapshots: $(ls "$dir/snapshots" 2>/dev/null | tr '\n' ' ')"
+}
+
+main() {
+    local cmd="${1:-}"; shift || true
+    case "$cmd" in
+        base)
+            local sub="${1:-}"; shift || true
+            case "$sub" in create) cmd_base_create "$@";; *) die "usage: sbx base create NAME SRCDIR";; esac;;
+        create) cmd_create "$@";;
+        exec) cmd_exec "$@";;
+        snapshot) cmd_snapshot "$@";;
+        fork) cmd_fork "$@";;
+        rollback) cmd_rollback "$@";;
+        destroy) cmd_destroy "$@";;
+        list) cmd_list;;
+        status) cmd_status "$@";;
+        *) die "usage: sbx {base create|create|exec|snapshot|fork|rollback|destroy|list|status} ...";;
+    esac
+}
+main "$@"

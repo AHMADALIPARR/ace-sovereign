@@ -1,0 +1,15 @@
+# ngrok tunnel configuration for the gateway — the only public edge of
+# the engine. The tunnel reaches exactly one localhost service: the
+# harness. No sandbox port is ever exposed; sandboxes have no route to
+# this process beyond the dispatch socket.
+#
+# The authtoken is NOT stored here. run-gateway.sh reads it from the
+# NGROK_AUTHTOKEN environment variable on the gateway host, which is the
+# only place any credential lives.
+version: "2"
+tunnels:
+  harness:
+    proto: http
+    addr: 127.0.0.1:8765
+    # Set a reserved domain here when one is provisioned; on the free
+    # tier the endpoint is the ephemeral URL ngrok assigns at start.

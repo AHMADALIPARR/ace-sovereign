@@ -1,0 +1,50 @@
+# Blueprint — a sovereign Agent Compute Engine
+
+Google's Agent Compute Engine (announced 2026-10-22) splits an agent into
+a harness (the brain, outside the execution boundary) and a sandbox (the
+hands, a disposable microVM). The split is sound; the implementation is a
+rented cloud service. This repository builds the same architecture on
+owned hardware, with the owner's rules substituted for the cloud's:
+
+| ACE pillar (Google Cloud) | This build (owned iron) |
+|---|---|
+| Harness outside the sandbox | The conductor layer: the owner's phone, his agents, and the harness service. It decides; it never executes. |
+| Sandbox microVM (Cloud Hypervisor) | QEMU microVMs on the Jetson (KVM). On hosts without KVM, the same lifecycle runs over overlayfs workspace trees (this repo, stage 1). |
+| Zero credentials in the guest | Enforced by construction and by gate: sandbox trees are scanned for credential-shaped files at creation and refused if found; dispatched commands run with a scrubbed environment (allowlist only). |
+| No NIC in the guest; traffic via virtio-vsock to mediation proxies | The sandbox gets no direct route out. Its only channel is a Unix-socket dispatch protocol to the harness, and the harness's only public edge is the tunnel gateway. |
+| Agent Gateway brokers credentials per request | The gateway holds every credential (including the tunnel token) outside every sandbox, and brokers per request. Nothing is injected into a sandbox tree or a dispatched environment. |
+| SPIFFE workload identity, short-lived and attested | Hash-chained receipts: every lifecycle event and every dispatch extends an append-only SHA-256 chain (the ledger). A sandbox's identity is its position in the chain. |
+| Snapshot, fork, rollback with shared memory/pages | Copy-on-write state: overlayfs uppers over shared, immutable lowers. A fork costs a directory, not a copy; a rollback discards an upper. On the Jetson stage the same verbs drive qemu-img snapshots of the guest disk. |
+| Memory deduplication across identical guests | Shared immutable base trees: a thousand forks of one base store the base once. |
+
+## Layers
+
+1. **Harness** (`harness/`) — decides and dispatches. Speaks the dispatch
+   protocol (JSON lines over a Unix socket), writes the ledger, owns all
+   credentials through the gateway. Never runs agent code itself.
+2. **Sandbox** (`bin/sbx`) — the lifecycle: `base`, `create`, `exec`,
+   `snapshot`, `fork`, `rollback`, `destroy`. A sandbox is a copy-on-write
+   workspace with a scrubbed execution environment. On KVM hosts the same
+   verbs wrap a microVM around the workspace.
+3. **Gateway** (`gateway/`) — the only public edge: an ngrok reverse
+   tunnel to the harness's localhost port. Outbound-only; the sandbox
+   host opens no listening port to the internet.
+
+## Invariants
+
+- A sandbox tree never contains a credential. The gate refuses, it does
+  not warn.
+- The harness never executes dispatched code; the sandbox never decides.
+- Every state change is a ledger entry; the chain head is the system's
+  attestation of its own history.
+- A fork diverges or it is not a fork: sibling writes are invisible to
+  each other, proven by the test suite, not asserted.
+- Rollback is total: after rollback to a snapshot, the tree is the
+  snapshot — files created later are gone, not hidden.
+
+## Non-goals
+
+- No rented inference, no metered API in the control path.
+- No multi-tenant hosting for strangers. This is a sovereign engine for
+  one owner's fleet: phone, Jetson, NUC, and agent VMs of the same shape
+  as the one that built it.
