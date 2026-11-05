@@ -98,5 +98,6 @@ encoder.
 
 ## Repository state
 
-Working name `ace-sovereign`. Local only; not pushed. License: the
-sovereign license in `LICENSE`, copied verbatim.
+Published 2026-11-04: https://github.com/AHMADALIPARR/ace-sovereign
+(public, master). License: the sovereign license in `LICENSE`, copied
+verbatim and checked before the push.
