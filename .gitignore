@@ -3,3 +3,4 @@
 tunnel/ebin/
 harness/ebin/
 machine/ebin/
+erl_crash.dump
