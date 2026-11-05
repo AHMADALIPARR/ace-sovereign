@@ -54,6 +54,24 @@ elapsed = time.time() - t0
 check("overrunning command times out", r.get("error") == "timeout")
 check("timeout fires promptly", elapsed < 4)
 
+# 6. a 6502 program from the sandbox runs in the container machine
+r = rpc({"id": "t6", "box": "alpha", "run6502": "hi.bin"})
+check("6502 dispatch exits clean", r.get("exit") == 0)
+check("6502 program output crosses back", r.get("stdout") == "HI")
+check("6502 halt reason is brk", r.get("reason") == "brk")
+check("6502 run reports its steps", isinstance(r.get("steps"), int) and r["steps"] > 0)
+
+# 7. a runaway 6502 program is stopped by its step budget
+r = rpc({"id": "t7", "box": "alpha", "run6502": "spin.bin", "budget": 500})
+check("6502 budget stops the spinner", r.get("exit") == 1
+      and "budget_exhausted" in r.get("reason", ""))
+
+# 8. program names cannot escape the sandbox
+r = rpc({"id": "t8", "box": "alpha", "run6502": "../ledger.log"})
+check("path-like program name is refused", r.get("error") == "bad_program_name")
+r = rpc({"id": "t9", "box": "alpha", "run6502": "ghost.bin"})
+check("missing program is refused", r.get("error") == "no_such_program")
+
 failed = [n for n, ok in results if not ok]
 print(f"client: {len(results) - len(failed)}/{len(results)} checks passed")
 sys.exit(1 if failed else 0)

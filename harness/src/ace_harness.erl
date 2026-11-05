@@ -71,6 +71,63 @@ handle_line(Line, SbxHome, Sbx) ->
     end.
 
 dispatch(Req, SbxHome, Sbx) ->
+    case maps:find(<<"run6502">>, Req) of
+        {ok, Prog} -> dispatch_6502(Req, Prog, SbxHome);
+        error -> dispatch_argv(Req, SbxHome, Sbx)
+    end.
+
+%% A 6502 dispatch: the program is a file inside the sandbox's merged
+%% tree; it runs in the container machine (ace6502) — a BEAM-side state,
+%% no process, no port, bounded by its step budget. The name is a plain
+%% relative file name: anything path-like is refused.
+dispatch_6502(Req, Prog, SbxHome) ->
+    Id = maps:get(<<"id">>, Req, null),
+    Box = maps:get(<<"box">>, Req, <<"">>),
+    Budget = maps:get(<<"budget">>, Req, 1000000),
+    Org = maps:get(<<"org">>, Req, 16#0200),
+    BoxDir = filename:join([SbxHome, "boxes", Box]),
+    ProgName = binary_to_list(Prog),
+    Safe = Prog =/= <<"">> andalso
+           string:find(ProgName, "..") =:= nomatch andalso
+           hd(ProgName) =/= $/,
+    if
+        not Safe ->
+            #{id => Id, error => <<"bad_program_name">>};
+        true ->
+            case filelib:is_dir(BoxDir) of
+                false ->
+                    #{id => Id, error => <<"unknown_box">>};
+                true ->
+                    Path = filename:join([BoxDir, "merged", ProgName]),
+                    case file:read_file(Path) of
+                        {error, _} ->
+                            #{id => Id, error => <<"no_such_program">>};
+                        {ok, Bytes} ->
+                            ledger(SbxHome, "dispatch",
+                                   io_lib:format("kind=6502 box=~s prog=~s", [Box, ProgName])),
+                            run_6502(Id, SbxHome, Box, Bytes, Org, Budget)
+                    end
+            end
+    end.
+
+run_6502(Id, SbxHome, Box, Bytes, Org, Budget) ->
+    {Exit, Reason, Out, Steps} =
+        case ace6502:run_binary(Bytes, Org, Budget) of
+            {ok, O, M} ->
+                {0, "brk", O, maps:get(steps, ace6502:registers(M))};
+            {error, R, O, M} ->
+                {1, io_lib:format("~p", [R]), O, maps:get(steps, ace6502:registers(M))}
+        end,
+    Hash = hex(crypto:hash(sha256, Out)),
+    Head = ledger(SbxHome, "dispatch-done",
+                  io_lib:format("kind=6502 box=~s exit=~p steps=~p reason=~s stdout_sha256=~s",
+                                [Box, Exit, Steps, Reason, Hash])),
+    #{id => Id, exit => Exit, stdout => Out,
+      stdout_sha256 => list_to_binary(Hash),
+      reason => list_to_binary(lists:flatten(Reason)),
+      steps => Steps, ledger_head => list_to_binary(Head)}.
+
+dispatch_argv(Req, SbxHome, Sbx) ->
     Id = maps:get(<<"id">>, Req, null),
     Box = maps:get(<<"box">>, Req, <<"">>),
     Argv = maps:get(<<"argv">>, Req, []),

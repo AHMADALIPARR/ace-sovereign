@@ -2,3 +2,4 @@
 .sbx-state/
 tunnel/ebin/
 harness/ebin/
+machine/ebin/

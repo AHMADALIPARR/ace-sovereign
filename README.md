@@ -29,6 +29,13 @@ vault, and one reverse tunnel as the only public edge.
   `env_allow` names are refused at the harness and again inside sbx),
   timeouts kill the dispatched process exactly, and every dispatch is
   ledgered before and after it runs, in the same hash chain sbx keeps.
+- **`machine/`** — the container CPU: a 6502 virtual machine in Erlang
+  (the full official opcode set, BCD arithmetic, the NMOS indirect-jump
+  quirk) plus a term assembler whose encodings come from the machine's
+  own table. A sandboxed program's world is its own 64 KB; writes to
+  `$FE00` are its output, and a step budget stops it deterministically.
+  The harness dispatches 6502 programs straight from a sandbox tree
+  (`run6502`), so the container runs on any hardware BEAM runs on.
 - **`tunnel/`** — the only public edge: a hand-rolled reverse tunnel in
   the ngrok shape, Erlang/OTP, no vendor and no API. `ace_agent` runs on
   the sandbox host and makes only outbound connections; `ace_relay`
@@ -48,5 +55,5 @@ density through shared immutable bases instead of rented deduplication.
 ## Status
 
 See `STATUS.md` for what is verified by execution and what is staged:
-the lifecycle, its gates, and the tunnel are proven here; the microVM
-wrap is Jetson-stage work.
+the lifecycle, its gates, the tunnel, the harness, and the 6502
+container machine are proven here; deployment choices are the owner's.

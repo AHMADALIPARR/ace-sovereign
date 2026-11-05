@@ -22,7 +22,17 @@ echo "app" > "$SBX_HOME/fixture/app.txt"
 
 "$REPO/harness/build.sh" >/dev/null; ok $? "harness compiles (erlc, OTP only)"
 
-TEST_MARKER=vouched ACE_SBX="$SBX" erl -noshell -pa "$REPO/harness/ebin" \
+"$REPO/machine/build.sh" >/dev/null
+# 6502 fixtures inside the sandbox: HI (prints via $FE00) and a spinner
+python3 - "$SBX_HOME/boxes/alpha/merged" <<'EOF'
+import sys
+merged = sys.argv[1]
+open(f"{merged}/hi.bin", "wb").write(bytes(
+    [0xA9, 0x48, 0x8D, 0x00, 0xFE, 0xA9, 0x49, 0x8D, 0x00, 0xFE, 0x00]))
+open(f"{merged}/spin.bin", "wb").write(bytes([0x4C, 0x00, 0x02]))
+EOF
+
+TEST_MARKER=vouched ACE_SBX="$SBX" erl -noshell -pa "$REPO/harness/ebin" "$REPO/machine/ebin" \
     -eval 'ace_harness:start().' > "$SBX_HOME/harness.log" 2>&1 &
 HPID=$!
 for i in $(seq 1 50); do [ -S "$SBX_HOME/harness.sock" ] && break; sleep 0.2; done

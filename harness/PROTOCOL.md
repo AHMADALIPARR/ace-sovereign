@@ -6,12 +6,27 @@ component that executes. They speak over a Unix stream socket at
 listener inside the engine; the gateway tunnel terminates at the
 harness's own authenticated front door, never at this socket.
 
-## Request
+## Requests
+
+A command dispatch:
 
 ```json
 {"id": "01J…", "box": "alpha", "argv": ["python3", "job.py"],
  "env_allow": ["LANG"], "timeout_s": 600}
 ```
+
+A 6502 dispatch — the program is a file in the sandbox's merged tree
+and runs in the container machine (ace6502), bounded by a step budget
+instead of a clock:
+
+```json
+{"id": "01J…", "box": "alpha", "run6502": "job.bin", "budget": 1000000}
+```
+
+The response adds `reason` (`brk`, `budget_exhausted`,
+`{illegal_opcode, …}`) and `steps`. Program names are plain relative
+file names; anything containing `..` or starting with `/` is refused
+(`bad_program_name`), as is a missing file (`no_such_program`).
 
 - `box` — an existing sandbox name.
 - `argv` — executed via `sbx exec`: working directory is the sandbox's

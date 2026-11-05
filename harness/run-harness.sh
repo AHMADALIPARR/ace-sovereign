@@ -4,4 +4,5 @@
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 "$HERE/build.sh" >/dev/null
-exec erl -noshell -pa "$HERE/ebin" -eval 'ace_harness:start().'
+"$HERE/../machine/build.sh" >/dev/null
+exec erl -noshell -pa "$HERE/ebin" "$HERE/../machine/ebin" -eval 'ace_harness:start().'
