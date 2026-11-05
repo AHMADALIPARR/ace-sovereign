@@ -26,10 +26,14 @@ vault, and one reverse tunnel as the only public edge.
   (JSON lines over a Unix socket) in which the harness decides, the
   sandbox executes, host credentials are unvouchable, and every dispatch
   is ledgered before and after it runs.
-- **`gateway/`** — the only public edge: an ngrok reverse tunnel to the
-  harness's localhost port, outbound-only. The gateway holds the tunnel
-  token in its own environment, scans every sandbox tree for that token
-  before opening, and refuses to start if it is ever found inside one.
+- **`tunnel/`** — the only public edge: a hand-rolled reverse tunnel in
+  the ngrok shape, Erlang/OTP, no vendor and no API. `ace_agent` runs on
+  the sandbox host and makes only outbound connections; `ace_relay`
+  runs on a public host the owner controls and splices public
+  connections onto agent-initiated streams. Authentication is HMAC over
+  a relay-issued nonce, keyed by a tunnel key the operator generates
+  himself (`tunnel/make-key.sh`) and places on both hosts by hand —
+  the same trust shape as his SSH keys.
 
 ## Design
 
@@ -41,5 +45,5 @@ density through shared immutable bases instead of rented deduplication.
 ## Status
 
 See `STATUS.md` for what is verified by execution and what is staged:
-the lifecycle and its gates are proven here; the microVM wrap and the
-live tunnel are Jetson-stage work.
+the lifecycle, its gates, and the tunnel are proven here; the microVM
+wrap is Jetson-stage work.

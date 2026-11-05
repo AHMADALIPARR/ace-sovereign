@@ -26,17 +26,33 @@
   state is ephemeral across VM replacement. On conventional hosts the
   default `$HOME/.ace-sovereign` applies.
 
+## The tunnel (owner correction, 2026-11-04)
+
+The owner clarified the same evening: he has never used ngrok or any
+vendor API/token (GitHub excepted) — "ngrok" named the *shape*, bare
+metal, and the one key in the system is his own. The ngrok gateway
+built earlier in the day was removed the same day and replaced by a
+hand-rolled tunnel in `tunnel/` (Erlang/OTP; OTP's crypto and gen_tcp
+are the whole supply chain).
+
+Verified by execution (this VM, 2026-11-04): `tunnel/test/run-tunnel-test.sh`
+**7/7 pass** — operator key generation; compilation; the agent
+registering with the relay (HMAC over a relay-issued nonce); a public
+HTTP request reaching a localhost-only harness through the tunnel; a
+second stream pairing independently; an agent with the wrong key
+refused, with the refusal logged by the relay.
+
 ## Staged, not yet built
 
 - The harness service implementing `harness/PROTOCOL.md` (house choice:
   Erlang/OTP, per the sovereign-circuit-fabric console precedent).
-- The live ngrok tunnel: needs ngrok installed on the gateway host and
-  the owner's ngrok authtoken in that host's environment. Nothing about
-  the tunnel is testable before the token exists, and the token never
-  enters this repository.
+- Public deployment of the relay: the software runs anywhere; choosing
+  which always-on host holds the public port is the owner's call. No
+  account or token is needed at any point — the tunnel key is generated
+  on his machines.
 - Jetson stage: KVM microVM wrap of the sbx lifecycle, density runs
   (many forks of one base), and the Bonsai backend (:8086) as the first
-  tenant behind the gateway.
+  tenant behind the tunnel.
 
 ## Repository state
 
