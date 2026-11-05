@@ -26,13 +26,16 @@ harness's own authenticated front door, never at this socket.
 ## Response
 
 ```json
-{"id": "01J…", "exit": 0, "stdout_sha256": "…", "ledger_head": "…"}
+{"id": "01J…", "exit": 0, "stdout": "…", "stdout_sha256": "…", "ledger_head": "…"}
 ```
 
 Output itself returns on the socket; the ledger stores only its hash.
-A sandbox's identity in the ledger is its name plus the chain position
-of its `create` entry — the local analogue of an attested workload
-identity: short-lived boxes, long-lived proof.
+Refusals and failures return an `error` field instead of `exit`:
+`env_allow_refused` (with the refused names), `unknown_box`,
+`bad_argv`, `bad_request`, `timeout` (the command is killed at
+`timeout_s`). A sandbox's identity in the ledger is its name plus the
+chain position of its `create` entry — the local analogue of an
+attested workload identity: short-lived boxes, long-lived proof.
 
 ## Rules
 

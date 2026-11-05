@@ -34,6 +34,10 @@ echo "TOKEN=abc" > "$SBX_HOME/poison/.env"
 [ "$(cat "$SBX_HOME/boxes/alpha/merged/app.txt")" = "v1" ]; ok $? "base content visible through overlay"
 SCRUB=$("$SBX" exec alpha -- sh -c 'echo "HOME=$HOME TOKEN=${HOST_SECRET_TOKEN:-unset}"')
 echo "$SCRUB" | grep -q 'TOKEN=unset'; ok $? "exec environment is scrubbed (no host tokens)"
+TEST_MARKER=benign-value "$SBX" exec alpha --allow TEST_MARKER -- sh -c 'echo $TEST_MARKER' > "$SBX_HOME/marker.out"
+[ "$(cat "$SBX_HOME/marker.out")" = "benign-value" ]; ok $? "--allow passes a named benign variable through the scrub"
+"$SBX" exec alpha --allow AWS_SECRET_TOKEN -- true >/dev/null 2>&1
+[ $? -ne 0 ]; ok $? "--allow refuses a credential-shaped variable name"
 
 # snapshot, diverge, fork
 "$SBX" snapshot alpha s1 >/dev/null; ok $? "snapshot alpha s1"

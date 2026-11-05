@@ -41,8 +41,12 @@ accept_loop(Kind, LSock, Broker) ->
         {ok, Sock} ->
             case Kind of
                 agent ->
-                    HPid = spawn(fun() -> handshake(Sock, Broker) end),
-                    gen_tcp:controlling_process(Sock, HPid);
+                    HPid = spawn(fun() ->
+                        receive {ace_go} -> ok end,
+                        handshake(Sock, Broker)
+                    end),
+                    gen_tcp:controlling_process(Sock, HPid),
+                    HPid ! {ace_go};
                 public ->
                     gen_tcp:controlling_process(Sock, Broker),
                     gen_server:cast(Broker, {public_conn, Sock})
@@ -80,6 +84,7 @@ await_ruling(Sock, control) ->
         {broker, {control, Watcher}} ->
             inet:setopts(Sock, [{packet, raw}]),
             gen_tcp:controlling_process(Sock, Watcher),
+            Watcher ! {ace_go},
             ok;
         {broker, drop} ->
             gen_tcp:close(Sock)
@@ -90,8 +95,9 @@ await_ruling(Sock, stream) ->
     receive
         {broker, {pair, PublicSock}} ->
             inet:setopts(Sock, [{packet, raw}]),
-            PumpB = spawn(ace_tunnel, pump, [Sock, PublicSock]),
+            PumpB = ace_tunnel:spawn_pump(Sock, PublicSock),
             gen_tcp:controlling_process(Sock, PumpB),
+            PumpB ! {ace_go},
             ok;
         {broker, drop} ->
             gen_tcp:close(Sock)
@@ -110,7 +116,10 @@ handle_cast({hello, HPid, Sock, Name, Nonce, Mac}, State = #state{key = Key}) ->
         true ->
             gen_tcp:send(Sock, "OK\n"),
             Broker = self(),
-            Watcher = spawn(fun() -> control_watcher(Sock, Broker) end),
+            Watcher = spawn(fun() ->
+                receive {ace_go} -> ok end,
+                control_watcher(Sock, Broker)
+            end),
             HPid ! {broker, {control, Watcher}},
             io:format("ace_relay: agent registered: ~s~n", [Name]),
             {noreply, State#state{control = {Sock, Watcher}}};
@@ -127,8 +136,9 @@ handle_cast({stream, HPid, Sock, Id, Mac}, State = #state{key = Key, pending = P
         {true, {ok, PublicSock}} ->
             gen_tcp:send(Sock, "GO\n"),
             inet:setopts(PublicSock, [{packet, raw}]),
-            PumpA = spawn(ace_tunnel, pump, [PublicSock, Sock]),
+            PumpA = ace_tunnel:spawn_pump(PublicSock, Sock),
             gen_tcp:controlling_process(PublicSock, PumpA),
+            PumpA ! {ace_go},
             HPid ! {broker, {pair, PublicSock}},
             {noreply, State#state{pending = maps:remove(Id, Pending)}};
         _ ->

@@ -7,7 +7,18 @@
 %% operator generates (make-key.sh) and places on both hosts by hand —
 %% the owner's own cryptographic key, like his SSH keys.
 -module(ace_tunnel).
--export([cfg/2, load_key/1, hmac_hex/2, hex/1, unhex/1, pump/2, nonce_hex/0]).
+-export([cfg/2, load_key/1, hmac_hex/2, hex/1, unhex/1, pump/2, spawn_pump/2, nonce_hex/0]).
+
+%% spawn_pump(From, To) — a pump that waits for {ace_go} before touching
+%% its socket. The caller transfers socket ownership to the pump pid
+%% first, then sends {ace_go}: a process that calls gen_tcp:recv before
+%% it owns the socket gets {error, not_owner}, so the gate is load-
+%% bearing, not ceremony.
+spawn_pump(From, To) ->
+    spawn(fun() ->
+        receive {ace_go} -> ok end,
+        pump(From, To)
+    end).
 
 cfg(Name, Default) ->
     case os:getenv(Name) of

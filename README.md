@@ -22,10 +22,13 @@ vault, and one reverse tunnel as the only public edge.
   hidden), `destroy`, `list`, `status`. Every verb extends an append-only
   SHA-256 hash-chained ledger — the sandbox fleet's identity and audit
   trail in one file.
-- **`harness/`** — the brain's contract: a dispatch protocol
-  (JSON lines over a Unix socket) in which the harness decides, the
-  sandbox executes, host credentials are unvouchable, and every dispatch
-  is ledgered before and after it runs.
+- **`harness/`** — the brain: a dispatch service (Erlang/OTP) speaking
+  JSON lines over a Unix socket, per `harness/PROTOCOL.md`. The harness
+  decides and dispatches through `sbx exec`; it never runs the command
+  itself. Host credentials are unvouchable (credential-shaped
+  `env_allow` names are refused at the harness and again inside sbx),
+  timeouts kill the dispatched process exactly, and every dispatch is
+  ledgered before and after it runs, in the same hash chain sbx keeps.
 - **`tunnel/`** — the only public edge: a hand-rolled reverse tunnel in
   the ngrok shape, Erlang/OTP, no vendor and no API. `ace_agent` runs on
   the sandbox host and makes only outbound connections; `ace_relay`

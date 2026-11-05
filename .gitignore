@@ -1,3 +1,4 @@
 .test-state/
 .sbx-state/
 tunnel/ebin/
+harness/ebin/

@@ -122,10 +122,12 @@ splice(Data, TargetPort) ->
     case gen_tcp:connect("127.0.0.1", TargetPort, [binary, {packet, raw}, {active, false}], 10000) of
         {ok, Local} ->
             inet:setopts(Data, [{packet, raw}]),
-            PumpA = spawn(ace_tunnel, pump, [Data, Local]),
-            PumpB = spawn(ace_tunnel, pump, [Local, Data]),
+            PumpA = ace_tunnel:spawn_pump(Data, Local),
+            PumpB = ace_tunnel:spawn_pump(Local, Data),
             gen_tcp:controlling_process(Data, PumpA),
             gen_tcp:controlling_process(Local, PumpB),
+            PumpA ! {ace_go},
+            PumpB ! {ace_go},
             ok;
         {error, _} ->
             gen_tcp:close(Data)

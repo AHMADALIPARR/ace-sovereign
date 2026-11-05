@@ -42,10 +42,30 @@ HTTP request reaching a localhost-only harness through the tunnel; a
 second stream pairing independently; an agent with the wrong key
 refused, with the refusal logged by the relay.
 
+## The harness (built 2026-11-04, after the tunnel)
+
+`harness/` implements PROTOCOL.md as a service: `ace_harness` (Erlang/
+OTP) listens on a Unix socket at `$SBX_HOME/harness.sock`, validates
+each JSON-lines dispatch, and executes it through `sbx exec` — the
+harness decides and dispatches; sbx remains the only executor. Two
+supporting changes: `sbx exec` learned `--allow VAR` (a named variable
+crosses the scrub; credential-shaped names are refused inside sbx too,
+so the gate holds at both layers) and exec now replaces the sbx
+process, so the harness's timeout kills the dispatched process exactly.
+
+Verified by execution: `harness/test/run-harness-test.sh` **6/6**,
+including the protocol client's 9/9 checks — dispatch returns exit
+code, output, and a matching stdout hash; a benign env_allow variable
+crosses; a credential-shaped one is refused and the refusal is
+ledgered; unknown boxes are refused; an overrunning command is killed
+at its timeout; and the shared ledger chain verifies end to end with
+sbx and harness entries interleaved (12 entries in the test run). Two
+defects were found and fixed under test: a socket-ownership race in
+the Erlang accept paths (gated spawns), and atom map keys in the JSON
+encoder.
+
 ## Staged, not yet built
 
-- The harness service implementing `harness/PROTOCOL.md` (house choice:
-  Erlang/OTP, per the sovereign-circuit-fabric console precedent).
 - Public deployment of the relay: the software runs anywhere; choosing
   which always-on host holds the public port is the owner's call. No
   account or token is needed at any point — the tunnel key is generated
