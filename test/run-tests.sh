@@ -32,7 +32,7 @@ echo "TOKEN=abc" > "$SBX_HOME/poison/.env"
 "$SBX" exec alpha -- sh -c 'echo alpha-1 > note.txt' ; ok $? "exec writes into the box"
 [ "$(cat "$SBX_HOME/boxes/alpha/merged/note.txt")" = "alpha-1" ]; ok $? "write visible in merged tree"
 [ "$(cat "$SBX_HOME/boxes/alpha/merged/app.txt")" = "v1" ]; ok $? "base content visible through overlay"
-SCRUB=$("$SBX" exec alpha -- sh -c 'echo "HOME=$HOME TOKEN=${NGROK_AUTHTOKEN:-unset}"')
+SCRUB=$("$SBX" exec alpha -- sh -c 'echo "HOME=$HOME TOKEN=${HOST_SECRET_TOKEN:-unset}"')
 echo "$SCRUB" | grep -q 'TOKEN=unset'; ok $? "exec environment is scrubbed (no host tokens)"
 
 # snapshot, diverge, fork
